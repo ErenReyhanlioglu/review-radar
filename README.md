@@ -4,7 +4,7 @@
 
 PM iş akışını otomatize etmek üzerine geliştirilmiş bir case study: aylık review pipeline'ı, AI destekli analiz ve PM'e özel rapor üretimi.
 
-![Review Radar Dashboard](frontend/src/assets/hero.png)
+![Review Radar Dashboard](docs/screenshot.png)
 
 ---
 

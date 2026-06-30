@@ -18,55 +18,71 @@ review-radar/
 │   │   │   └── routes/
 │   │   │       ├── chat.py             # POST /chat
 │   │   │       ├── charts.py           # GET /charts/trend, /charts/topics ...
-│   │   │       └── tasks.py            # POST /tasks, GET /tasks
+│   │   │       ├── tasks.py            # POST /tasks, GET /tasks
+│   │   │       ├── reports.py          # GET /reports, /reports/latest, /reports/{month}
+│   │   │       └── simulation.py       # POST /simulation/advance, GET /simulation/status
 │   │   │
 │   │   ├── services/                   # İş mantığı — route'lardan bağımsız
-│   │   │   ├── scraper.py              # Apify API çağrısı + incremental filtre
-│   │   │   ├── processor.py            # Claude API → konu etiketi + sentiment
+│   │   │   ├── loader.py               # reviews_clean.json'dan tarih aralığı filtreli okuma
+│   │   │   ├── processor.py            # Claude API → konu etiketi + sentiment + özet
 │   │   │   ├── embedder.py             # OpenAI text-embedding-3-small
 │   │   │   ├── vector_store.py         # Qdrant upsert + search_examples()
 │   │   │   ├── aggregator.py           # review_aggregates tablosunu günceller
 │   │   │   ├── chat.py                 # Claude tool calling orkestrasyonu
-│   │   │   ├── reporter.py             # Haftalık rapor metni üretimi
+│   │   │   ├── reporter.py             # Aylık rapor metni üretimi
 │   │   │   └── mailer.py               # SendGrid entegrasyonu
 │   │   │
 │   │   ├── jobs/
-│   │   │   └── weekly_pipeline.py      # Cron: scrape→process→embed→store→aggregate
+│   │   │   └── monthly_pipeline.py     # Simülasyon tetiklemeli pipeline orkestrasyonu
 │   │   │
 │   │   ├── models/                     # SQLAlchemy ORM modelleri
 │   │   │   ├── review.py
 │   │   │   ├── aggregate.py
-│   │   │   └── task.py
+│   │   │   ├── task.py
+│   │   │   ├── report.py               # reports tablosu
+│   │   │   └── config.py               # system_config tablosu
 │   │   │
 │   │   └── schemas/                    # Pydantic request/response şemaları
 │   │       ├── chat.py
 │   │       ├── chart.py
-│   │       └── task.py
+│   │       ├── task.py
+│   │       └── simulation.py           # SimulationStatus, AdvanceResponse
+│   │
+│   ├── data/
+│   │   ├── raw/                        # Ham Apify JSON'ları (git'e girmez)
+│   │   └── reviews_clean.json          # 770 temiz Apollo.io review'ı (git'e girmez)
 │   │
 │   ├── migrations/                     # Alembic DB migration'ları
 │   │   ├── env.py
 │   │   └── versions/
+│   │
+│   ├── scripts/                        # Tek seferlik yardımcı scriptler
+│   │   ├── advance_all.py              # Tüm ayları sırayla ilerletir
+│   │   ├── check_data.py               # JSON veri setini kontrol eder
+│   │   └── generate_missing_reports.py # Eksik raporları doldurur
 │   │
 │   ├── tests/
 │   │   ├── test_services/
 │   │   └── test_api/
 │   │
 │   ├── alembic.ini
-│   ├── pyproject.toml                  # Bağımlılıklar + tool config
+│   ├── pyproject.toml
 │   └── .env.example
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── charts/
-│   │   │   │   ├── WeeklyTrendChart.tsx
+│   │   │   │   ├── MonthlyTrendChart.tsx
 │   │   │   │   ├── TopicDistributionChart.tsx
 │   │   │   │   ├── SentimentTrendChart.tsx
-│   │   │   │   └── IndustryComparisonChart.tsx
+│   │   │   │   └── CompanySizeChart.tsx
 │   │   │   ├── chat/
 │   │   │   │   ├── ChatPanel.tsx
 │   │   │   │   ├── ChatMessage.tsx
 │   │   │   │   └── AddToReportButton.tsx
+│   │   │   ├── simulation/
+│   │   │   │   └── SimulationBar.tsx   # Simüle tarih + "→ Sonraki Ay" butonu
 │   │   │   ├── filters/
 │   │   │   │   └── FilterPanel.tsx
 │   │   │   └── layout/
@@ -74,13 +90,14 @@ review-radar/
 │   │   │
 │   │   ├── hooks/
 │   │   │   ├── useChartData.ts         # /charts/* endpoint'lerini tüketir
-│   │   │   └── useChat.ts              # chat state + streaming
+│   │   │   ├── useChat.ts              # chat state + streaming
+│   │   │   └── useSimulation.ts        # simüle tarih state + advance tetikleme
 │   │   │
 │   │   ├── services/
 │   │   │   └── api.ts                  # Axios instance + tüm API çağrıları
 │   │   │
 │   │   ├── types/
-│   │   │   └── index.ts                # Review, ChartData, Message tipleri
+│   │   │   └── index.ts                # Review, ChartData, Message, SimulationStatus tipleri
 │   │   │
 │   │   ├── App.tsx
 │   │   └── main.tsx
@@ -88,9 +105,13 @@ review-radar/
 │   ├── package.json
 │   └── vite.config.ts
 │
+├── notebooks/
+│   └── 01_explore_raw_data.ipynb       # Veri keşfi + temizleme
+│
 ├── Dockerfile                          # HF Spaces: React build + FastAPI serve
 ├── workflow-diagram.md
 ├── structure-diagram.md
+├── CLAUDE.md
 ├── .gitignore
 └── .env.example
 ```
@@ -111,25 +132,29 @@ review-radar/
 
 ---
 
-## VERİ AKIŞI — HAFTALIK PIPELINE
+## VERİ AKIŞI — SİMÜLASYON PIPELINE
 
 ```
-weekly_pipeline.py (APScheduler — Her Pazartesi 09:00)
+POST /simulation/advance
     │
-    ├── scraper.py
-    │     Apify'a istek at
-    │     date > last_scraped_at filtresi
-    │     Ham review listesi döner
+    ▼
+monthly_pipeline.py  ← job orchestrator
+    │
+    ├── loader.py
+    │     reviews_clean.json'ı oku
+    │     date BETWEEN (simulated_date - 1 ay) AND simulated_date filtrele
+    │     reviews tablosundaki review_id'lerle karşılaştır
+    │     → sadece işlenmemiş review'ları döndür
     │
     ├── processor.py
     │     Her review için Claude API çağrısı
-    │     → topics: ["veri kalitesi", "fiyat" ...]
+    │     → topics: ["veri kalitesi", "fiyat", "UX" ...]
     │     → sentiment: pozitif / negatif / nötr
     │     → summary: 1 cümlelik özet
     │
     ├── embedder.py
-    │     Her review_text için OpenAI API çağrısı
-    │     text-embedding-3-small → vector[1536]
+    │     likes + dislikes metni birleştir
+    │     OpenAI API → vector[1536]
     │
     ├── vector_store.py
     │     Qdrant'a upsert
@@ -138,12 +163,18 @@ weekly_pipeline.py (APScheduler — Her Pazartesi 09:00)
     ├── aggregator.py
     │     PostgreSQL reviews tablosuna INSERT
     │     review_aggregates tablosunu güncelle
-    │     (week, topic, sentiment, industry, company_size, count)
+    │     (month, topic, sentiment, company_size, count)
     │
-    └── reporter.py + mailer.py
-          task_queue'daki bekleyen PM sorgularını çek
-          Claude API ile haftalık raporu üret
-          SendGrid ile email gönder
+    ├── system_config güncelle
+    │     simulated_date += 1 ay
+    │
+    ├── reporter.py
+    │     Claude API ile aylık raporu üret (standart bölümler)
+    │     NOT: PM notları (pm_sections) rapor metnine dahil değil;
+    │     GET /reports/{month} ile ayrıca döner
+    │
+    └── mailer.py
+          SendGrid ile raporu email gönder
 ```
 
 
@@ -163,18 +194,40 @@ services/chat.py
     │
     Claude soruyu analiz eder ve tool seçer:
     │
-    ├── get_trend(topic, date_from, date_to, group_by)
-    │       → PostgreSQL review_aggregates sorgusu
-    │       → Haftalık COUNT verisi döner
+    ├── get_trend(topic, date_from, date_to, sentiment, company_size, rating_min/max, visualize, chart_title)
+    │       → PostgreSQL reviews tablosu sorgusu
+    │       → Aylık avg_rating + count döner
     │
-    └── search_examples(query, filters, top_k)
-            → Qdrant semantik arama
-            → En alakalı review örnekleri döner
+    ├── get_breakdown(group_by, topic, sentiment, company_size, date_from/to, rating_min/max, visualize, chart_title)
+    │       → PostgreSQL reviews tablosu sorgusu
+    │       → group_by: topic / sentiment / company_size
+    │       → Her segment için count + avg_rating döner
+    │
+    ├── search_examples(query, topic, sentiment, company_size, top_k, date_from/to, rating_min/max, visualize, chart_title)
+    │       → Qdrant semantik arama
+    │       → En alakalı review örnekleri döner
+    │
+    ├── list_reports()
+    │       → reports tablosundaki tüm ayların listesi
+    │
+    ├── get_report(month)
+    │       → Belirtilen aya ait reporter.py çıktısı (markdown)
+    │
+    └── get_report_notes(month)
+            → PM'in o aya "Rapora Ekle" ile kaydettiği soru-cevap çiftleri
+            → task_queue tablosundan (status=tamamlandı)
     │
     Claude sonuçları birleştirip doğal dil cevap üretir
     │
     ▼
-Response: {answer: "Evet, %23 azaldı. İşte detaylar..."}
+Response: {
+  answer: "Evet, %23 azaldı. İşte detaylar...",
+  charts: [
+    { type: "trend", data: [{month, avg_rating, count}] },
+    { type: "breakdown", group_by: "topic", data: [{group_value, count, avg_rating}] },
+    { type: "examples", data: [{date, rating, company_size, topics, sentiment, summary}] }
+  ]
+}
 ```
 
 
@@ -183,40 +236,83 @@ Response: {answer: "Evet, %23 azaldı. İşte detaylar..."}
 ## POSTGRESQL ŞEMA
 
 ```sql
--- Ham review'lar
+-- Ham + zenginleştirilmiş review'lar
 CREATE TABLE reviews (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    text          TEXT NOT NULL,
-    rating        INT,
+    review_id     TEXT UNIQUE NOT NULL,   -- duplicate koruması
+    likes         TEXT,
+    dislikes      TEXT,
+    rating        FLOAT,
     date          DATE,
-    industry      TEXT,
     company_size  TEXT,
     topics        TEXT[],
     sentiment     TEXT,
+    summary       TEXT,
     created_at    TIMESTAMP DEFAULT now()
 );
 
--- Grafik ve trend sorguları için önceden hesaplanmış aggregation
+-- Grafik ve trend sorguları için pre-computed aggregation
 CREATE TABLE review_aggregates (
-    week          DATE,        -- Pazartesi bazlı (date_trunc('week', date))
+    month         DATE,
     topic         TEXT,
     sentiment     TEXT,
-    industry      TEXT,
     company_size  TEXT,
     count         INT,
-    PRIMARY KEY (week, topic, sentiment, industry, company_size)
+    PRIMARY KEY (month, topic, sentiment, company_size)
 );
 
--- PM'in "Rapora Ekle" butonundan oluşturduğu sorgular
+-- PM'in "Rapora Ekle" ile kaydettiği soru-cevap çiftleri
 CREATE TABLE task_queue (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     prompt        TEXT NOT NULL,
     target_date   DATE NOT NULL,
-    status        TEXT DEFAULT 'bekliyor',  -- bekliyor / tamamlandı
-    result        TEXT,
+    status        TEXT DEFAULT 'tamamlandı',  -- anında tamamlandı olarak kaydedilir
+    result        TEXT,                       -- AI'ın verdiği cevap
+    chart_data    JSONB,                      -- varsa grafik verisi
     created_at    TIMESTAMP DEFAULT now()
 );
+
+-- Aylık markdown raporları
+CREATE TABLE reports (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    month      DATE UNIQUE NOT NULL,  -- ayın 1'i: 2025-08-01
+    content    TEXT NOT NULL,         -- Claude'un ürettiği markdown
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- PoC simülasyon durumu
+CREATE TABLE system_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+-- Anahtarlar:
+-- simulated_date    başlangıç: '2025-07-01'
+-- pipeline_running  'true' / 'false'  (zaten çalışıyor kontrolü için kritik)
+-- pipeline_last_run NULL  (kod tarafından set edilmiyor, hep null döner)
 ```
+
+
+---
+
+## API ENDPOINT'LERİ
+
+| Method | Path | Açıklama |
+|--------|------|----------|
+| `POST` | `/simulation/advance` | Simüle tarihi 1 ay ilerlet, pipeline'ı tetikle |
+| `GET`  | `/simulation/status` | Mevcut simüle tarih + son çalışma bilgisi |
+| `POST` | `/simulation/reset` | Başa sar |
+| `GET`  | `/charts/trend` | Aylık puan trendi |
+| `GET`  | `/charts/topics` | Konu dağılımı |
+| `GET`  | `/charts/sentiment` | Sentiment trendi |
+| `GET`  | `/charts/company-size` | Şirket büyüklüğü dağılımı |
+| `POST` | `/chat` | AI chat mesajı gönder |
+| `POST` | `/tasks` | Task queue'ya doğrudan yaz (opsiyonel) |
+| `GET`  | `/tasks` | Task listesini getir |
+| `GET`  | `/reports` | Tüm aylık raporları listele (desc sıra) |
+| `GET`  | `/reports/latest` | En son raporu getir (pm_sections dahil) |
+| `GET`  | `/reports/{month}` | Belirli aya ait raporu getir (pm_sections dahil) |
+| `POST` | `/reports/{month}/append` | Chat'teki analizi o ayın raporuna ekle (pm_sections) |
+| `POST` | `/reports/{month}/send` | Raporu belirtilen e-posta adreslerine gönder |
 
 
 ---
@@ -226,20 +322,20 @@ CREATE TABLE task_queue (
 **Backend — `pyproject.toml`**
 
 ```toml
-[tool.poetry.dependencies]
-python = "^3.11"
-fastapi = "*"
-uvicorn = "*"
-sqlalchemy = "*"
-alembic = "*"
-asyncpg = "*"
-qdrant-client = "*"
-anthropic = "*"
-openai = "*"
-apscheduler = "*"
-sendgrid = "*"
-pydantic-settings = "*"
-httpx = "*"
+[project]
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "sqlalchemy",
+  "alembic",
+  "asyncpg",
+  "qdrant-client",
+  "anthropic",
+  "openai",
+  "sendgrid",
+  "pydantic-settings",
+  "httpx",
+]
 ```
 
 **Frontend — `package.json`**
@@ -277,13 +373,9 @@ QDRANT_COLLECTION=apollo_reviews
 ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 
-# Apify
-APIFY_API_TOKEN=
-APIFY_ACTOR_ID=
-
 # SendGrid
 SENDGRID_API_KEY=
-REPORT_RECIPIENTS=pm@company.com,cpo@company.com
+REPORT_RECIPIENTS=pm@company.com
 
 # App
 ENVIRONMENT=development

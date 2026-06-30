@@ -1,21 +1,25 @@
 # Review Radar
 
-Apollo.io ürün departmanı için G2 review'larını otomatik olarak analiz eden, haftalık raporlar üreten ve PM'lere AI destekli insight sunan bir Product Intelligence sistemi.
+Apollo.io ürün departmanı için G2 review'larını analiz eden, aylık raporlar üreten ve PM'lere AI destekli insight sunan bir Product Intelligence sistemi. PM rolünü otomatize etmek için geliştirilmiş bir case study PoC'udur.
 
 ## Özellikler
 
-- **Otomatik veri toplama** — Her Pazartesi Apify üzerinden G2'den incremental scraping
+- **Simüle aylık pipeline** — "Sonraki Ay" butonuyla zaman ilerletilir, sistem o ayın review'larını ilk kez görüyormuş gibi işler
 - **AI analizi** — Claude API ile konu etiketleme, sentiment analizi ve özetleme
 - **Semantik arama** — Qdrant vector store üzerinde doğal dil sorguları
-- **Trend analizi** — PostgreSQL aggregation tabloları ile haftalık/aylık trend grafikler
+- **Trend analizi** — PostgreSQL aggregation tabloları ile aylık trend grafikler
 - **AI chat** — Tool calling ile PM'lerin analitik sorularını anlık yanıtlama
-- **Haftalık rapor** — PM sorgularını birleştirerek SendGrid ile otomatik email
+- **Aylık rapor** — PM sorgularını birleştirerek SendGrid ile otomatik email
+
+## Veri Seti
+
+G2'den çekilmiş 770 unique Apollo.io review'ı (Temmuz 2025 – Haziran 2026).
 
 ## Tech Stack
 
 | Katman | Teknoloji |
 |--------|-----------|
-| Scraping | Apify — G2 Scraper (incremental) |
+| Veri Kaynağı | Local JSON (770 review, önceden çekildi) |
 | Embedding | OpenAI text-embedding-3-small |
 | Vector Store | Qdrant |
 | AI | Claude API — claude-sonnet-4-6 |
@@ -23,7 +27,6 @@ Apollo.io ürün departmanı için G2 review'larını otomatik olarak analiz ede
 | Frontend | React + Recharts |
 | Veritabanı | PostgreSQL |
 | Email | SendGrid |
-| Zamanlayıcı | APScheduler |
 | Deploy | Hugging Face Spaces |
 
 ## Kurulum
@@ -54,11 +57,13 @@ npm install
 npm run dev
 ```
 
-## Mimari
+## Mimari & Dokümantasyon
 
-Detaylı sistem mimarisi ve veri akışı için:
-- [`workflow-diagram.md`](workflow-diagram.md) — Sistem akışı
-- [`structure-diagram.md`](structure-diagram.md) — Klasör ve kod yapısı
+| Dosya | İçerik |
+|-------|--------|
+| [`workflow-diagram.md`](workflow-diagram.md) | Sistem akışı ve veri pipeline'ı |
+| [`structure-diagram.md`](structure-diagram.md) | Klasör, kod yapısı ve API endpoint'leri |
+| [`dataset-diagram.md`](dataset-diagram.md) | Veri seti şeması, alan detayları, tablo ilişkileri |
 
 ## Lisans
 

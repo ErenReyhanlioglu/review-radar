@@ -18,6 +18,22 @@ logger = logging.getLogger(__name__)
 
 _MODEL = "claude-haiku-4-5-20251001"
 
+_anthropic_client: anthropic.AsyncAnthropic | None = None
+
+
+def _get_anthropic_client() -> anthropic.AsyncAnthropic:
+    global _anthropic_client
+    if _anthropic_client is None:
+        _anthropic_client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    return _anthropic_client
+
+
+async def close_client() -> None:
+    global _anthropic_client
+    if _anthropic_client is not None:
+        await _anthropic_client.close()
+        _anthropic_client = None
+
 _TOPICS = [
     "veri kalitesi",
     "fiyat",
@@ -477,7 +493,7 @@ async def answer(message: str, db: AsyncSession, simulated_date: str | None = No
             f"Veri seti Temmuz 2025 (2025-07) ile başlar; bu aydan önce hiç review verisi yoktur."
         )
 
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = _get_anthropic_client()
     messages: list[dict] = [{"role": "user", "content": message}]
     all_charts: list[dict] = []
 

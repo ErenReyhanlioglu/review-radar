@@ -20,9 +20,21 @@ logger = logging.getLogger(__name__)
 
 VECTOR_SIZE = 1536
 
+_client: AsyncQdrantClient | None = None
+
 
 def _get_client() -> AsyncQdrantClient:
-    return AsyncQdrantClient(url=settings.qdrant_url)
+    global _client
+    if _client is None:
+        _client = AsyncQdrantClient(url=settings.qdrant_url)
+    return _client
+
+
+async def close_client() -> None:
+    global _client
+    if _client is not None:
+        await _client.close()
+        _client = None
 
 
 async def ensure_collection() -> None:
@@ -35,7 +47,6 @@ async def ensure_collection() -> None:
             vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
         )
         logger.info("Collection oluşturuldu: %s", settings.qdrant_collection)
-    await client.close()
 
 
 async def upsert_reviews(
@@ -87,7 +98,6 @@ async def upsert_reviews(
     if points:
         await client.upsert(collection_name=settings.qdrant_collection, points=points)
         logger.info("%d point Qdrant'a yazıldı.", len(points))
-    await client.close()
 
 
 async def search_examples(
@@ -131,7 +141,6 @@ async def search_examples(
         limit=fetch_limit,
         with_payload=True,
     )
-    await client.close()
 
     results = []
     for hit in hits.points:

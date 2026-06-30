@@ -9,6 +9,22 @@ logger = logging.getLogger(__name__)
 _MODEL = "text-embedding-3-small"
 _BATCH_SIZE = 512  # OpenAI max 2048, 512 güvenli
 
+_client: AsyncOpenAI | None = None
+
+
+def _get_client() -> AsyncOpenAI:
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI(api_key=settings.openai_api_key)
+    return _client
+
+
+async def close_client() -> None:
+    global _client
+    if _client is not None:
+        await _client.close()
+        _client = None
+
 
 def _build_text(review: dict) -> str:
     likes = review.get("likes") or ""
@@ -18,7 +34,7 @@ def _build_text(review: dict) -> str:
 
 async def embed_text(text: str) -> list[float]:
     """Embeds a single text string. Used by chat service for query vectors."""
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = _get_client()
     response = await client.embeddings.create(model=_MODEL, input=[text])
     return response.data[0].embedding
 
@@ -31,7 +47,7 @@ async def embed_reviews(reviews: list[dict]) -> dict[str, list[float]]:
     if not reviews:
         return {}
 
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    client = _get_client()
     results: dict[str, list[float]] = {}
 
     for i in range(0, len(reviews), _BATCH_SIZE):

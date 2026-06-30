@@ -9,6 +9,8 @@ from app.models.review import Review
 
 DATA_PATH = Path(__file__).parent.parent.parent / "data" / "reviews_clean.json"
 
+_json_cache: list[dict] | None = None
+
 
 def _prev_month_start(d: date) -> date:
     """Returns the first day of the month before d."""
@@ -18,8 +20,11 @@ def _prev_month_start(d: date) -> date:
 
 
 def _load_json() -> list[dict]:
-    with open(DATA_PATH, encoding="utf-8") as f:
-        return json.load(f)
+    global _json_cache
+    if _json_cache is None:
+        with open(DATA_PATH, encoding="utf-8") as f:
+            _json_cache = json.load(f)
+    return _json_cache
 
 
 async def load_reviews_for_month(simulated_date: date, db: AsyncSession) -> list[dict]:

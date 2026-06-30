@@ -4,6 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import charts, chat, reports, tasks, simulation
+import app.services.vector_store as _vs
+import app.services.embedder as _emb
+import app.services.chat as _chat_svc
 
 
 @asynccontextmanager
@@ -21,6 +24,9 @@ async def lifespan(app: FastAPI):
         await db.execute(stmt)
         await db.commit()
     yield
+    await _vs.close_client()
+    await _emb.close_client()
+    await _chat_svc.close_client()
 
 
 app = FastAPI(title="Review Radar", lifespan=lifespan)

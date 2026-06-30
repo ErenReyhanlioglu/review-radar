@@ -22,6 +22,8 @@ function useReportCharts(month: string | null) {
   useEffect(() => {
     if (!month) { setCharts([]); return }
 
+    let cancelled = false
+
     const monthStart = month.slice(0, 7) + '-01'
     const year = parseInt(monthStart.slice(0, 4))
     const month0 = parseInt(monthStart.slice(5, 7)) - 1
@@ -35,6 +37,7 @@ function useReportCharts(month: string | null) {
       getCompanySize({ date_from: monthStart, date_to: monthEnd }),
       getTopicSentiment({ date_from: monthStart, date_to: monthStart }),
     ]).then(([trend, topics, sentiment, companySize, topicSentiment]) => {
+      if (cancelled) return
       const built: ChartPayload[] = []
 
       if (trend?.length) built.push({ type: 'trend', data: trend })
@@ -70,7 +73,9 @@ function useReportCharts(month: string | null) {
       }
 
       setCharts(built)
-    }).catch(() => setCharts([]))
+    }).catch(() => { if (!cancelled) setCharts([]) })
+
+    return () => { cancelled = true }
   }, [month])
 
   return charts

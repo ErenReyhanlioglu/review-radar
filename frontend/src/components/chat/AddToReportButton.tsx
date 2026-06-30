@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { BookmarkPlus, Check, Loader2 } from 'lucide-react'
 
 interface Props {
@@ -7,12 +7,15 @@ interface Props {
 
 export function AddToReportButton({ onAddToReport }: Props) {
   const [state, setState] = useState<'idle' | 'loading' | 'done'>('idle')
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
   const handle = async () => {
     setState('loading')
     await onAddToReport()
     setState('done')
-    setTimeout(() => setState('idle'), 2000)
+    timerRef.current = setTimeout(() => setState('idle'), 2000)
   }
 
   return (

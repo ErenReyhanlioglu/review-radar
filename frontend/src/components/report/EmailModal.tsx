@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,9 @@ interface Props {
 export function EmailModal({ open, onClose, month }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set(['pm']))
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -39,10 +42,10 @@ export function EmailModal({ open, onClose, month }: Props) {
     try {
       await sendReportEmail(month, recipients, pm_email)
       setStatus('done')
-      setTimeout(() => { setStatus('idle'); onClose() }, 1500)
+      timerRef.current = setTimeout(() => { setStatus('idle'); onClose() }, 1500)
     } catch {
       setStatus('error')
-      setTimeout(() => setStatus('idle'), 2000)
+      timerRef.current = setTimeout(() => setStatus('idle'), 2000)
     }
   }
 

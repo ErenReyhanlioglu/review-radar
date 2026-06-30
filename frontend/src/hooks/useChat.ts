@@ -12,7 +12,7 @@ export function useChat(simulatedDate?: string | null) {
     const userMsg: ChatMessage = {
       id: makeId(), role: 'user', content: text, charts: [], timestamp: new Date(),
     }
-    setMessages((prev) => [...prev, userMsg])
+    setMessages((prev) => [...prev, userMsg].slice(-100))
     setLoading(true)
 
     try {
@@ -24,7 +24,7 @@ export function useChat(simulatedDate?: string | null) {
         charts: res.chart_data as ChartPayload[],
         timestamp: new Date(),
       }
-      setMessages((prev) => [...prev, assistantMsg])
+      setMessages((prev) => [...prev, assistantMsg].slice(-100))
       return assistantMsg
     } catch {
       const errMsg: ChatMessage = {
@@ -32,7 +32,7 @@ export function useChat(simulatedDate?: string | null) {
         content: 'Bir hata oluştu, lütfen tekrar deneyin.',
         charts: [], timestamp: new Date(),
       }
-      setMessages((prev) => [...prev, errMsg])
+      setMessages((prev) => [...prev, errMsg].slice(-100))
       return errMsg
     } finally {
       setLoading(false)

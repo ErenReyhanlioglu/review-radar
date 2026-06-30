@@ -1,33 +1,76 @@
 # Review Radar
 
-Apollo.io ürün departmanı için G2 review'larını analiz eden, aylık raporlar üreten ve PM'lere AI destekli insight sunan bir Product Intelligence sistemi. PM rolünü otomatize etmek için geliştirilmiş bir case study PoC'udur.
+**Apollo.io için G2 review'larını analiz eden Product Intelligence PoC'u.**
+
+PM iş akışını otomatize etmek üzerine geliştirilmiş bir case study: aylık review pipeline'ı, AI destekli analiz ve PM'e özel rapor üretimi.
+
+![Review Radar Dashboard](frontend/src/assets/hero.png)
+
+---
+
+## Arka Plan
+
+Bir PM'in aylık rutini şöyle işler: G2/Capterra gibi platformlardan review topla, konu ve sentiment analizi yap, trend çiz, rapor yaz, ekiple paylaş. Bu süreç tekrarlı ve zaman alıcı.
+
+Review Radar bu sürecin tamamını otomatize eder. Gerçek bir scraper yerine simülasyon kullanır — "Sonraki Ay" butonuna her basışta sistem o ayın review'larını ilk kez görüyormuş gibi işler, rapor üretir ve chat üzerinden anlık sorgulara yanıt verir.
+
+---
+
+## Nasıl Çalışır
+
+```
+"Sonraki Ay" butonu
+        ↓
+loader.py      → reviews_clean.json'dan o ayın review'larını filtreler
+processor.py   → Claude API ile konu etiketi + sentiment + özet
+embedder.py    → OpenAI text-embedding-3-small ile vektör üretir
+vector_store.py → Qdrant'a upsert eder
+aggregator.py  → PostgreSQL review_aggregates tablosunu günceller
+reporter.py    → Claude API ile aylık rapor markdown'ı üretir
+mailer.py      → SendGrid ile ilgili kişilere iletir
+```
+
+Simülasyon tarihi `system_config` tablosunda tutulur. Her ay bağımsız işlenir.
+
+---
 
 ## Özellikler
 
-- **Simüle aylık pipeline** — "Sonraki Ay" butonuyla zaman ilerletilir, sistem o ayın review'larını ilk kez görüyormuş gibi işler
-- **AI analizi** — Claude API ile konu etiketleme, sentiment analizi ve özetleme
-- **Semantik arama** — Qdrant vector store üzerinde doğal dil sorguları
-- **Trend analizi** — PostgreSQL aggregation tabloları ile aylık trend grafikler
-- **AI chat** — Tool calling ile PM'lerin analitik sorularını anlık yanıtlama
-- **Aylık rapor** — PM sorgularını birleştirerek SendGrid ile otomatik email
+- **Simüle aylık pipeline** — Zaman ilerletilerek gerçek bir cron/scraper olmadan uçtan uca test edilebilir
+- **AI enrichment** — Claude API ile her review'a konu etiketleri, sentiment ve özet atanır
+- **Semantik arama** — Qdrant üzerinde doğal dil sorguları; "fiyat şikayeti olan enterprise müşteriler" gibi
+- **AI chat (tool calling)** — PM, trend/dağılım/örnek review sorgusu atabilir; Claude hangi tool'u çağıracağına kendisi karar verir
+- **Rapora ekle** — Chat'te beğenilen analizler "Rapora Ekle" ile bir sonraki raporun PM bölümüne eklenir
+- **Otomatik aylık rapor** — Metrikler, konu analizi, sentiment, segment ve aksiyon önerileri içeren markdown rapor
+- **Email gönderimi** — SendGrid entegrasyonu; rapor doğrudan dashboard'dan gönderilebilir
+- **Viewer modu** — `?mode=viewer` parametresiyle salt okunur paylaşım linki
 
-## Veri Seti
-
-G2'den çekilmiş 770 unique Apollo.io review'ı (Temmuz 2025 – Haziran 2026).
+---
 
 ## Tech Stack
 
 | Katman | Teknoloji |
 |--------|-----------|
-| Veri Kaynağı | Local JSON (770 review, önceden çekildi) |
+| Backend | FastAPI + Python 3.11 |
+| AI (enrichment & rapor) | Claude API — Haiku 4.5 |
+| AI (chat) | Claude API — Haiku 4.5, tool calling |
 | Embedding | OpenAI text-embedding-3-small |
 | Vector Store | Qdrant |
-| AI | Claude API — claude-sonnet-4-6 |
-| Backend | FastAPI |
-| Frontend | React + Recharts |
-| Veritabanı | PostgreSQL |
+| Veritabanı | PostgreSQL + SQLAlchemy async |
+| Migration | Alembic |
+| Frontend | React + TypeScript + Recharts |
 | Email | SendGrid |
-| Deploy | Hugging Face Spaces |
+| Paket yönetimi | uv |
+
+---
+
+## Veri Seti
+
+G2'den derlenmiş **770 Apollo.io review**'ı (Temmuz 2025 – Haziran 2026). `backend/data/reviews_clean.json` — git'e girmez.
+
+Konu etiket listesi: `veri kalitesi`, `fiyat`, `email deliverability`, `UX / kullanım kolaylığı`, `müşteri desteği`, `entegrasyon`, `arama & filtreleme`, `otomasyon`, `raporlama & analitik`, `genel olumlu`
+
+---
 
 ## Kurulum
 
@@ -35,7 +78,7 @@ G2'den çekilmiş 770 unique Apollo.io review'ı (Temmuz 2025 – Haziran 2026).
 
 - Python 3.11+
 - Node.js 18+
-- uv
+- [uv](https://github.com/astral-sh/uv)
 - PostgreSQL
 - Qdrant
 
@@ -45,8 +88,9 @@ G2'den çekilmiş 770 unique Apollo.io review'ı (Temmuz 2025 – Haziran 2026).
 cd backend
 uv sync
 cp .env.example .env
-# .env dosyasını kendi API key'lerinizle doldurun
-uv run uvicorn app.main:app --reload
+# .env dosyasını doldurun (ANTHROPIC_API_KEY, OPENAI_API_KEY, DATABASE_URL, ...)
+uv run alembic upgrade head
+uv run uvicorn app.main:app --reload --port 8001
 ```
 
 ### Frontend
@@ -57,13 +101,28 @@ npm install
 npm run dev
 ```
 
-## Mimari & Dokümantasyon
+---
+
+## Simülasyon API'si
+
+| Endpoint | Açıklama |
+|----------|----------|
+| `POST /simulation/advance` | Simüle tarihi 1 ay ileri sar, pipeline'ı tetikle |
+| `GET /simulation/status` | Mevcut simüle tarih ve pipeline durumu |
+| `POST /simulation/reset` | Başa sar |
+
+---
+
+## Dokümantasyon
 
 | Dosya | İçerik |
 |-------|--------|
 | [`workflow-diagram.md`](workflow-diagram.md) | Sistem akışı ve veri pipeline'ı |
-| [`structure-diagram.md`](structure-diagram.md) | Klasör, kod yapısı ve API endpoint'leri |
-| [`dataset-diagram.md`](dataset-diagram.md) | Veri seti şeması, alan detayları, tablo ilişkileri |
+| [`structure-diagram.md`](structure-diagram.md) | Klasör yapısı ve API endpoint'leri |
+| [`dataset-diagram.md`](dataset-diagram.md) | Veri seti şeması ve tablo ilişkileri |
+| [`product-report-abstract.md`](product-report-abstract.md) | Aylık rapor yapısı ve PM iş akışı |
+
+---
 
 ## Lisans
 
